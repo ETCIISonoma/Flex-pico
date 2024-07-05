@@ -1,9 +1,9 @@
 import machine
 import time
 import bluetooth
-import struct
 from ble_advertising import advertising_payload
 from vl6180x import Sensor
+from lsm9ds1_sensor import LSM9DS1Sensor  # Ensure the LSM9DS1Sensor class is in the same directory
 from micropython import const
 
 # VL6180 sensor setup
@@ -21,6 +21,9 @@ RELAY_PIN = 16
 relay = machine.Pin(RELAY_PIN, machine.Pin.OUT)
 relay.value(1)
 
+# Initialize the LSM9DS1 sensor
+lsm_sensor = LSM9DS1Sensor()
+
 # Function to measure distance
 def measure_distance():
     try:
@@ -31,6 +34,13 @@ def measure_distance():
         print("Error measuring distance:", e)
         return None
 
+# Function to get orientation
+def get_orientation():
+    try:
+        return lsm_sensor.get_orientation()
+    except Exception as e:
+        print("Error getting orientation:", e)
+        return "Error"
 
 # BLE configs
 _IRQ_CENTRAL_CONNECT = const(1)
@@ -93,19 +103,22 @@ class BLESimplePeripheral:
         except Exception as e:
             print("Error starting advertising:", e)
 
-    def send_distance(self):
+    def send_distance_and_orientation(self):
         try:
             if self._connections:
                 distance = measure_distance()
+                orientation = get_orientation()
                 if distance is not None:
                     rounded_distance = round(distance / 10, 2)
                     distance_str = f"{rounded_distance:.2f} cm"
-                    self._ble.gatts_write(self._handle_ir, distance_str.encode())
+                    orientation_str = f"{orientation}"
+                    data_str = f"Distance: {distance_str}, Orientation: {orientation_str}"
+                    self._ble.gatts_write(self._handle_ir, data_str.encode())
                     for conn_handle in self._connections:
-                        self._ble.gatts_notify(conn_handle, self._handle_ir, distance_str.encode())
-                    # print(f"Sent value: {distance_str}")
+                        self._ble.gatts_notify(conn_handle, self._handle_ir, data_str.encode())
+                    print(f"Sent value: {data_str}")
         except Exception as e:
-            print("Error sending distance:", e)
+            print("Error sending distance and orientation:", e)
 
     def _relay_write(self, conn_handle):
         try:
@@ -124,7 +137,7 @@ def main():
     p = BLESimplePeripheral(ble)
 
     while True:
-        p.send_distance()
+        p.send_distance_and_orientation()
         time.sleep(0.2)  # Increase sleep time to ensure BLE operations have enough time
 
 if __name__ == "__main__":
